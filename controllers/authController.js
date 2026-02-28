@@ -6,12 +6,6 @@ const generateToken = (userId) => {
   return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
 };
 
-const isSupabaseConnectionError = (error) => {
-  if (!error) return false;
-  const text = `${error.message || ''} ${error.details || ''}`.toLowerCase();
-  return text.includes('fetch failed') || text.includes('connect timeout');
-};
-
 const register = async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -21,18 +15,11 @@ const register = async (req, res) => {
     }
 
     // Check existing user
-    const { data: existing, error: existingError } = await supabase
+    const { data: existing } = await supabase
       .from('users')
       .select('id')
       .eq('email', email)
       .single();
-
-    if (existingError && existingError.code !== 'PGRST116') {
-      if (isSupabaseConnectionError(existingError)) {
-        return res.status(503).json({ error: 'Database unavailable. Please try again shortly.' });
-      }
-      throw existingError;
-    }
 
     if (existing) {
       return res.status(409).json({ error: 'Email already registered' });
@@ -46,20 +33,12 @@ const register = async (req, res) => {
       .select('id, name, email, preferences, created_at')
       .single();
 
-    if (error) {
-      if (isSupabaseConnectionError(error)) {
-        return res.status(503).json({ error: 'Database unavailable. Please try again shortly.' });
-      }
-      throw error;
-    }
+    if (error) throw error;
 
     const token = generateToken(user.id);
     res.status(201).json({ message: 'Account created successfully', token, user });
   } catch (error) {
     console.error('Register error:', error);
-    if (isSupabaseConnectionError(error)) {
-      return res.status(503).json({ error: 'Database unavailable. Please try again shortly.' });
-    }
     res.status(500).json({ error: 'Registration failed' });
   }
 };
@@ -78,14 +57,7 @@ const login = async (req, res) => {
       .eq('email', email)
       .single();
 
-    if (error) {
-      if (isSupabaseConnectionError(error)) {
-        return res.status(503).json({ error: 'Database unavailable. Please try again shortly.' });
-      }
-      return res.status(500).json({ error: 'Login failed' });
-    }
-
-    if (!user) {
+    if (error || !user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -100,9 +72,6 @@ const login = async (req, res) => {
     res.json({ message: 'Login successful', token, user: userWithoutPassword });
   } catch (error) {
     console.error('Login error:', error);
-    if (isSupabaseConnectionError(error)) {
-      return res.status(503).json({ error: 'Database unavailable. Please try again shortly.' });
-    }
     res.status(500).json({ error: 'Login failed' });
   }
 };

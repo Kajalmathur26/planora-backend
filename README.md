@@ -98,7 +98,7 @@ planora-backend/
 | DELETE | `/api/journal/:id` | Delete entry |
 
 ### Goals, Habits, Moods, Events
-Similar CRUD patterns — see `routes/` folder.
+Follow Similar CRUD patterns — see `routes/` folder for endpoints.
 
 ### AI (Gemini)
 | Method | Route | Description |
@@ -112,7 +112,7 @@ Similar CRUD patterns — see `routes/` folder.
 
 ```bash
 # Clone repository
-git clone <your-backend-repo-url>
+git clone https://github.com/Kajalmathur26/planora-backend.git
 cd planora-backend
 
 # Install dependencies
@@ -139,7 +139,7 @@ npm start
 ```env
 PORT=5000
 NODE_ENV=development
-FRONTEND_URL=https://your-netlify-app.netlify.app
+FRONTEND_URL=https://planora-frontend-project.netlify.app
 
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key

@@ -3,7 +3,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const supabase = require('./config/supabase');
 
 const authRoutes = require('./routes/authRoutes');
 const taskRoutes = require('./routes/taskRoutes');
@@ -17,16 +16,10 @@ const dashboardRoutes = require('./routes/dashboardRoutes');
 
 const app = express();
 
-const isSupabaseConnectionError = (error) => {
-  if (!error) return false;
-  const text = `${error.message || ''} ${error.details || ''}`.toLowerCase();
-  return text.includes('fetch failed') || text.includes('connect timeout');
-};
-
 // Security
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: process.env.FRONTEND_URL || '*',
   credentials: true,
 }));
 
@@ -55,33 +48,8 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
 // Health check
-app.get('/health', async (req, res) => {
-  const response = {
-    status: 'ok',
-    message: 'Planora API is running',
-    db: 'up',
-    timestamp: new Date().toISOString(),
-  };
-
-  try {
-    const { error } = await supabase.from('users').select('id').limit(1);
-
-    if (error) {
-      response.status = 'degraded';
-      response.db = 'down';
-      response.message = 'Planora API running, database unavailable';
-      response.db_error = isSupabaseConnectionError(error) ? 'supabase_connection_timeout' : 'supabase_query_error';
-      return res.status(503).json(response);
-    }
-
-    return res.status(200).json(response);
-  } catch (error) {
-    response.status = 'degraded';
-    response.db = 'down';
-    response.message = 'Planora API running, database unavailable';
-    response.db_error = isSupabaseConnectionError(error) ? 'supabase_connection_timeout' : 'unknown_db_error';
-    return res.status(503).json(response);
-  }
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', message: 'Planora API is running', timestamp: new Date().toISOString() });
 });
 
 // 404 handler
