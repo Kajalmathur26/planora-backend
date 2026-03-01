@@ -13,7 +13,7 @@ const getGenAI = () => {
 const getModel = () => {
   const genAI = getGenAI();
   return genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash', // ✅ stable working model
+    model: 'gemini-2.5-flash', // ✅ stable working model
   });
 };
 
