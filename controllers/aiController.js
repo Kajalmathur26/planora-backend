@@ -1,19 +1,21 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const supabase = require('../config/supabase');
+const taskModel = require('../models/taskModel');
+const moodModel = require('../models/moodModel');
+const habitModel = require('../models/habitModel');
+const goalModel = require('../models/goalModel');
+const dashboardModel = require('../models/dashboardModel');
+const journalModel = require('../models/journalModel');
 
 // ---------- Helpers ---------- //
 
 const getGenAI = () => {
-  // if (!process.env.GEMINI_API_KEY) {
-  //   throw new Error('Gemini API key not configured');
-  // }
   return new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 };
 
 const getModel = () => {
   const genAI = getGenAI();
   return genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash', // ✅ stable working model
+    model: "gemini-2.5-flash",
   });
 };
 
@@ -33,38 +35,19 @@ const analyzeProductivity = async (req, res) => {
     const model = getModel();
 
     const [tasks, moods, habits] = await Promise.all([
-      supabase
-        .from('tasks')
-        .select('status, priority, created_at, due_date')
-        .eq('user_id', req.user.id)
-        .gte(
-          'created_at',
-          new Date(Date.now() - 7 * 86400000).toISOString()
-        ),
-
-      supabase
-        .from('mood_logs')
-        .select('mood_score, mood_label, log_date')
-        .eq('user_id', req.user.id)
-        .gte(
-          'log_date',
-          new Date(Date.now() - 7 * 86400000)
-            .toISOString()
-            .split('T')[0]
-        ),
-
-      supabase
-        .from('habits')
-        .select('name, current_streak')
-        .eq('user_id', req.user.id),
+      taskModel.getAll(req.user.id, {}),
+      moodModel.getAll(req.user.id, {
+        start_date: new Date(Date.now() - 7 * 86400000).toISOString().split('T')[0]
+      }),
+      habitModel.getAll(req.user.id),
     ]);
 
     const prompt = `
 You are a productivity coach. Based on this weekly data for ${req.user.name}:
 
-Tasks: ${JSON.stringify(tasks.data?.slice(0, 20))}
-Mood logs: ${JSON.stringify(moods.data)}
-Active habits: ${JSON.stringify(habits.data?.slice(0, 10))}
+Tasks: ${JSON.stringify(tasks.slice(0, 20))}
+Mood logs: ${JSON.stringify(moods)}
+Active habits: ${JSON.stringify(habits.slice(0, 10))}
 
 Provide:
 1. Key observations (2-3)
@@ -226,9 +209,102 @@ Return ONLY JSON:
   }
 };
 
+// ---------- 5. Daily Plan ---------- //
+
+const dailyPlan = async (req, res) => {
+  try {
+    const model = getModel();
+    const today = new Date().toISOString().split('T')[0];
+
+    const [tasks, habits, goals] = await Promise.all([
+      taskModel.getAll(req.user.id, { status: 'pending' }),
+      habitModel.getAll(req.user.id),
+      goalModel.getAll(req.user.id),
+    ]);
+
+    const activeGoals = goals.filter(g => g.status === 'active');
+
+    const prompt = `
+You are a productivity coach. Create a time-blocked daily schedule for ${req.user.name} for today (${today}).
+
+Pending/In-Progress Tasks: ${JSON.stringify(tasks.slice(0, 10))}
+Active Habits: ${JSON.stringify(habits)}
+Active Goals: ${JSON.stringify(activeGoals)}
+
+Create a realistic schedule from 7:00 AM to 10:00 PM.
+Include breaks, meals, and habit time.
+Format each block as: HH:MM – Activity (reason/goal it serves)
+
+Return ONLY a JSON array:
+[
+  { "time": "09:00", "activity": "...", "duration": 60, "category": "work|habit|break|goal|personal", "emoji": "💼" }
+]
+No markdown, no explanation.
+`;
+
+    const result = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: prompt }] }] });
+    let text = result.response.text().trim().replace(/```json|```/g, '');
+    const schedule = safeJsonParse(text);
+
+    if (!schedule) return res.status(500).json({ error: 'Invalid AI response' });
+    res.json({ schedule, date: today, generated_at: new Date().toISOString() });
+  } catch (error) {
+    console.error('Daily plan error:', error);
+    res.status(500).json({ error: 'Failed to generate daily plan' });
+  }
+};
+
+// ---------- 6. Smart Task Suggestions ---------- //
+
+const suggestTasks = async (req, res) => {
+  try {
+    const model = getModel();
+
+    const [tasks, goals, habits] = await Promise.all([
+      taskModel.getAll(req.user.id, { status: 'pending' }),
+      goalModel.getAll(req.user.id),
+      habitModel.getAll(req.user.id),
+    ]);
+
+    const activeGoals = goals.filter(g => g.status === 'active');
+
+    const prompt = `
+Based on the user's current tasks, goals, and habits, suggest 5 specific, actionable tasks they should do today or this week.
+
+Current tasks: ${JSON.stringify(tasks.slice(0, 10))}
+Active goals: ${JSON.stringify(activeGoals)}
+Habits: ${JSON.stringify(habits.slice(0, 5))}
+
+Return ONLY JSON:
+[
+  {
+    "title": "...",
+    "description": "...",
+    "priority": "low|medium|high|urgent",
+    "category": "work|personal|health|learning",
+    "reason": "Brief explanation why this task helps"
+  }
+]
+No markdown.
+`;
+
+    const result = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: prompt }] }] });
+    let text = result.response.text().trim().replace(/```json|```/g, '');
+    const suggestions = safeJsonParse(text);
+
+    if (!suggestions) return res.status(500).json({ error: 'Invalid AI response' });
+    res.json({ suggestions, generated_at: new Date().toISOString() });
+  } catch (error) {
+    console.error('Task suggestion error:', error);
+    res.status(500).json({ error: 'Failed to suggest tasks' });
+  }
+};
+
 module.exports = {
   analyzeProductivity,
   generateJournalPrompt,
   chatWithAI,
   suggestGoals,
+  dailyPlan,
+  suggestTasks,
 };

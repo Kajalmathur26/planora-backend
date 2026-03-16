@@ -1,138 +1,63 @@
-const supabase = require('../config/supabase');
+const habitModel = require('../models/habitModel');
 
 const getHabits = async (req, res) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
-    const { data: habits, error } = await supabase
-      .from('habits')
-      .select('*, habit_logs(*)')
-      .eq('user_id', req.user.id)
-      .order('created_at', { ascending: true });
-
-    if (error) throw error;
+    const habits = await habitModel.getAll(req.user.id);
     res.json({ habits });
   } catch (error) {
+    console.error('getHabits error:', error);
     res.status(500).json({ error: 'Failed to fetch habits' });
   }
 };
 
 const createHabit = async (req, res) => {
   try {
-    const { name, description, frequency, target_count, color, icon } = req.body;
-    if (!name) return res.status(400).json({ error: 'Name required' });
-
-    const { data, error } = await supabase
-      .from('habits')
-      .insert([{
-        user_id: req.user.id,
-        name,
-        description,
-        frequency: frequency || 'daily',
-        target_count: target_count || 1,
-        current_streak: 0,
-        longest_streak: 0,
-        color: color || '#8B5CF6',
-        icon: icon || '⭐'
-      }])
-      .select()
-      .single();
-
-    if (error) throw error;
-    res.status(201).json({ habit: data });
+    const habit = await habitModel.create(req.user.id, req.body);
+    res.status(201).json({ habit });
   } catch (error) {
+    console.error('createHabit error:', error);
     res.status(500).json({ error: 'Failed to create habit' });
   }
 };
 
 const logHabit = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { date, count, notes } = req.body;
-    const logDate = date || new Date().toISOString().split('T')[0];
-
-    // Upsert log
-    const { data, error } = await supabase
-      .from('habit_logs')
-      .upsert([{
-        habit_id: id,
-        log_date: logDate,
-        count: count || 1,
-        notes,
-        completed: true
-      }], { onConflict: 'habit_id,log_date' })
-      .select()
-      .single();
-
-    if (error) throw error;
-
-    // Update streak
-    await updateStreak(id);
-    res.json({ log: data });
+    const log = await habitModel.log(req.params.id, req.body);
+    res.json({ log });
   } catch (error) {
+    console.error('logHabit error:', error);
     res.status(500).json({ error: 'Failed to log habit' });
   }
 };
 
-const updateStreak = async (habitId) => {
-  try {
-    const { data: logs } = await supabase
-      .from('habit_logs')
-      .select('log_date')
-      .eq('habit_id', habitId)
-      .eq('completed', true)
-      .order('log_date', { ascending: false });
-
-    if (!logs || logs.length === 0) return;
-
-    let streak = 0;
-    const today = new Date();
-    let checkDate = new Date(today);
-
-    for (const log of logs) {
-      const logDate = new Date(log.log_date);
-      const diff = Math.floor((checkDate - logDate) / (1000 * 60 * 60 * 24));
-      if (diff <= 1) {
-        streak++;
-        checkDate = logDate;
-      } else break;
-    }
-
-    const { data: habit } = await supabase.from('habits').select('longest_streak').eq('id', habitId).single();
-    await supabase.from('habits').update({
-      current_streak: streak,
-      longest_streak: Math.max(streak, habit?.longest_streak || 0)
-    }).eq('id', habitId);
-  } catch (e) { console.error(e); }
-};
-
 const updateHabit = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { data, error } = await supabase
-      .from('habits')
-      .update(req.body)
-      .eq('id', id)
-      .eq('user_id', req.user.id)
-      .select()
-      .single();
-
-    if (error) throw error;
-    res.json({ habit: data });
+    const habit = await habitModel.update(req.user.id, req.params.id, req.body);
+    res.json({ habit });
   } catch (error) {
+    console.error('updateHabit error:', error);
     res.status(500).json({ error: 'Failed to update habit' });
+  }
+};
+
+const unlogHabit = async (req, res) => {
+  try {
+    await habitModel.unlog(req.params.id);
+    res.json({ message: 'Habit unlogged' });
+  } catch (error) {
+    console.error('unlogHabit error:', error);
+    res.status(500).json({ error: 'Failed to unlog habit' });
   }
 };
 
 const deleteHabit = async (req, res) => {
   try {
-    const { id } = req.params;
-    await supabase.from('habit_logs').delete().eq('habit_id', id);
-    const { error } = await supabase.from('habits').delete().eq('id', id).eq('user_id', req.user.id);
-    if (error) throw error;
+    await habitModel.delete(req.user.id, req.params.id);
     res.json({ message: 'Habit deleted' });
   } catch (error) {
+    console.error('deleteHabit error:', error);
     res.status(500).json({ error: 'Failed to delete habit' });
   }
 };
 
-module.exports = { getHabits, createHabit, logHabit, updateHabit, deleteHabit };
+module.exports = { getHabits, createHabit, logHabit, unlogHabit, updateHabit, deleteHabit };

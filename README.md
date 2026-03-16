@@ -1,20 +1,24 @@
 # Planora Backend API
 
-> RESTful API for Planora - Digital Planner & Journal, built with Node.js + Express + Supabase
+> RESTful API for Planora - Digital Planner & Journal, built with Node.js + Express + Supabase and Google Gemini AI
 
 ## 🚀 Tech Stack
 
 - **Node.js** + **Express.js** — Server framework
 - **Supabase** — PostgreSQL database + auth
 - **Google Gemini AI** — AI-powered features
-- **JWT** — Authentication
+- **JWT+ Google OAuth** — Authentication
 - **bcryptjs** — Password hashing
-- **Helmet + Rate Limiting** — Security
+- **Helmet + Rate Limiting+CORS** — Security
+- **Email** - Nodemailer
 
 ## 📁 Project Structure
 
 ```
 planora-backend/
+├── config/
+│   ├── supabase.js
+│   └── schema.sql
 ├── controllers/
 │   ├── authController.js
 │   ├── taskController.js
@@ -23,8 +27,25 @@ planora-backend/
 │   ├── habitController.js
 │   ├── moodController.js
 │   ├── eventController.js
+│   ├── financeController.js
 │   ├── aiController.js
 │   └── dashboardController.js
+│   ├── searchController.js 
+│   ├── exportController.js
+│   └── adminController.js
+├── models/
+│   ├── userModel.js
+│   ├── taskModel.js
+│   ├── journalModel.js 
+│   ├── goalModel.js 
+│   ├── habitModel.js 
+│   ├── moodModel.js 
+│   ├── eventModel.js 
+│   ├── financeModel.js 
+│   ├── dashboardModel.js
+│   ├── searchModel.js 
+│   ├── exportModel.js 
+│   └── adminModel.js
 ├── routes/
 │   ├── authRoutes.js
 │   ├── taskRoutes.js
@@ -33,13 +54,19 @@ planora-backend/
 │   ├── habitRoutes.js
 │   ├── moodRoutes.js
 │   ├── eventRoutes.js
+│   ├── financeRoutes.js
 │   ├── aiRoutes.js
 │   └── dashboardRoutes.js
+│   ├── searchRoutes.js
+│   ├── exportRoutes.js 
+│   └── adminRoutes.js
 ├── middleware/
 │   └── auth.js
-├── config/
-│   ├── supabase.js
-│   └── schema.sql
+├── services/ 
+│   └── reminderService.js 
+├── utils/ 
+│   ├── emailService.js 
+│   └── errorHandler.js
 ├── app.js
 └── server.js
 ```
@@ -97,7 +124,7 @@ planora-backend/
 | PUT | `/api/journal/:id` | Update entry |
 | DELETE | `/api/journal/:id` | Delete entry |
 
-### Goals, Habits, Moods, Events
+### Goals, Habits, Moods, Events,finence,focus
 Follow Similar CRUD patterns — see `routes/` folder for endpoints.
 
 ### AI (Gemini)
@@ -147,7 +174,9 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
 JWT_SECRET=your_jwt_secret_min_32_chars
 
 GEMINI_API_KEY=your_google_gemini_api_key
-```
+GOOGLE_CLIENT_ID= your google client id
+EMAIL_USER=your mail
+EMAIL_PASS=your app password
 
 ## ☁️ Deployment (Render)
 

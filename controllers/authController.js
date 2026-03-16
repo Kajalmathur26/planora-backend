@@ -1,6 +1,10 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const supabase = require('../config/supabase');
+const { OAuth2Client } = require('google-auth-library');
+const userModel = require('../models/userModel');
+const { sendWelcomeEmail, sendLoginNotification } = require('../utils/emailService');
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 const generateToken = (userId) => {
   return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
@@ -14,28 +18,23 @@ const register = async (req, res) => {
       return res.status(400).json({ error: 'Name, email, and password are required' });
     }
 
-    // Check existing user
-    const { data: existing } = await supabase
-      .from('users')
-      .select('id')
-      .eq('email', email)
-      .single();
-
+    const existing = await userModel.findByEmail(email);
     if (existing) {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
 
-    const { data: user, error } = await supabase
-      .from('users')
-      .insert([{ name, email, password: hashedPassword, preferences: { theme: 'dark', accent: 'violet' } }])
-      .select('id, name, email, preferences, created_at')
-      .single();
-
-    if (error) throw error;
+    const user = await userModel.create({ 
+      name, 
+      email, 
+      password: hashedPassword, 
+      role: 'user', 
+      preferences: { theme: 'dark', accent: 'violet' } 
+    });
 
     const token = generateToken(user.id);
+    sendWelcomeEmail(user);
     res.status(201).json({ message: 'Account created successfully', token, user });
   } catch (error) {
     console.error('Register error:', error);
@@ -51,13 +50,8 @@ const login = async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('id, name, email, password, preferences')
-      .eq('email', email)
-      .single();
-
-    if (error || !user) {
+    const user = await userModel.findByEmail(email);
+    if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
@@ -68,11 +62,48 @@ const login = async (req, res) => {
 
     const token = generateToken(user.id);
     const { password: _, ...userWithoutPassword } = user;
-
+    sendLoginNotification(user);
     res.json({ message: 'Login successful', token, user: userWithoutPassword });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Login failed' });
+  }
+};
+
+const googleLogin = async (req, res) => {
+  try {
+    const { token: googleToken } = req.body;
+    if (!googleToken) return res.status(400).json({ error: 'Google token is required' });
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken: googleToken,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    
+    const payload = ticket.getPayload();
+    const { email, name, picture: avatar_url } = payload;
+
+    let user = await userModel.findByEmail(email);
+
+    if (!user) {
+      user = await userModel.create({
+        name,
+        email,
+        password: 'GOOGLE_OAUTH_USER',
+        role: 'user',
+        avatar_url,
+        preferences: { theme: 'dark', accent: 'violet' }
+      });
+      sendWelcomeEmail(user);
+    } else {
+      sendLoginNotification(user);
+    }
+
+    const token = generateToken(user.id);
+    res.json({ message: 'Google login successful', token, user });
+  } catch (error) {
+    console.error('Google login error:', error);
+    res.status(500).json({ error: 'Google login failed' });
   }
 };
 
@@ -82,23 +113,54 @@ const getProfile = async (req, res) => {
 
 const updateProfile = async (req, res) => {
   try {
-    const { name, preferences } = req.body;
+    const { name, preferences, phone, avatar_url } = req.body;
     const updates = {};
-    if (name) updates.name = name;
-    if (preferences) updates.preferences = preferences;
+    if (name !== undefined) updates.name = name;
+    if (preferences !== undefined) updates.preferences = preferences;
+    if (phone !== undefined) updates.phone = phone;
+    if (avatar_url !== undefined) updates.avatar_url = avatar_url;
 
-    const { data: user, error } = await supabase
-      .from('users')
-      .update(updates)
-      .eq('id', req.user.id)
-      .select('id, name, email, preferences')
-      .single();
-
-    if (error) throw error;
+    const user = await userModel.update(req.user.id, updates);
     res.json({ user });
   } catch (error) {
+    console.error('Update profile error:', error);
     res.status(500).json({ error: 'Update failed' });
   }
 };
 
-module.exports = { register, login, getProfile, updateProfile };
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ error: 'Email is required' });
+
+    const user = await userModel.findByEmail(email);
+    if (!user) {
+      return res.json({ message: 'If an account exists with this email, a reset link has been sent.' });
+    }
+
+    const resetToken = jwt.sign(
+      { userId: user.id, type: 'password_reset' },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
+
+    await userModel.setResetToken(user.id, resetToken, new Date(Date.now() + 3600000).toISOString());
+    console.log(`Password reset token for ${email}: ${resetToken}`);
+    res.json({ message: 'If an account exists with this email, a reset link has been sent.' });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ error: 'Failed to process request' });
+  }
+};
+
+const deleteProfile = async (req, res) => {
+  try {
+    await userModel.delete(req.user.id);
+    res.json({ message: 'Account deleted successfully' });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(500).json({ error: 'Deletion failed' });
+  }
+};
+
+module.exports = { register, login, googleLogin, getProfile, updateProfile, forgotPassword, deleteProfile };
